@@ -23,46 +23,42 @@ namespace ARMeilleure
             _ticksPerFunction = new ConcurrentDictionary<ulong, long>();
         }
 
+        [Conditional("M_PROFILE")]
         public static void InitializeTimer()
         {
-#if M_PROFILE
             if (_executionTimer == null)
             {
                 _executionTimer = new Stopwatch();
             }
-#endif
         }
+
+        [Conditional("M_PROFILE")]
 
         internal static void StartTimer()
         {
-#if M_PROFILE
             _executionTimer.Restart();
-#endif
         }
 
+        [Conditional("M_PROFILE")]
         internal static void StopTimer(ulong funcAddr)
         {
-#if M_PROFILE
             _executionTimer.Stop();
 
             long ticks = _executionTimer.ElapsedTicks;
 
             _ticksPerFunction.AddOrUpdate(funcAddr, ticks, (key, oldTicks) => oldTicks + ticks);
-#endif
         }
 
+        [Conditional("M_PROFILE")]
         internal static void ResumeTimer()
         {
-#if M_PROFILE
             _executionTimer.Start();
-#endif
         }
 
+        [Conditional("M_PROFILE")]
         internal static void PauseTimer()
         {
-#if M_PROFILE
             _executionTimer.Stop();
-#endif
         }
 
         public static string GetReport()

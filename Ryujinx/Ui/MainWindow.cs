@@ -62,8 +62,6 @@ namespace Ryujinx.Ui
 
         private HLE.Switch _emulationContext;
 
-        private WindowsMultimediaTimerResolution _windowsMultimediaTimerResolution;
-
         private readonly ApplicationLibrary _applicationLibrary;
         private readonly GtkHostUiHandler   _uiHandler;
         private readonly AutoResetEvent     _deviceExitStatus;
@@ -909,8 +907,6 @@ namespace Ryujinx.Ui
 
             RendererWidget.Dispose();
 
-            _windowsMultimediaTimerResolution?.Dispose();
-            _windowsMultimediaTimerResolution = null;
             DisplaySleep.Restore();
 
             _viewBox.Remove(RendererWidget);
@@ -941,11 +937,6 @@ namespace Ryujinx.Ui
 
         private void CreateGameWindow()
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                _windowsMultimediaTimerResolution = new WindowsMultimediaTimerResolution(1);
-            }
-
             DisplaySleep.Prevent();
 
             RendererWidget.Initialize(_emulationContext);

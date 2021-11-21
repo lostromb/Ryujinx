@@ -1,6 +1,7 @@
 ﻿using OpenTK.Audio.OpenAL;
 using Ryujinx.Audio.Common;
 using Ryujinx.Audio.Integration;
+using Ryujinx.Common.System;
 using Ryujinx.Memory;
 using System;
 using System.Collections.Concurrent;
@@ -117,7 +118,7 @@ namespace Ryujinx.Audio.Backends.OpenAL
                 }
 
                 // If it's not slept it will waste cycles.
-                Thread.Sleep(10);
+                HighPrecisionThreadSleep.Wait(10);
             }
         }
 

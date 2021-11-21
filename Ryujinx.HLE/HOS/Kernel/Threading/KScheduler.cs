@@ -1,4 +1,5 @@
 using Ryujinx.Common;
+using Ryujinx.Common.System;
 using Ryujinx.HLE.HOS.Kernel.Process;
 using System;
 using System.Collections.Generic;
@@ -395,7 +396,7 @@ namespace Ryujinx.HLE.HOS.Kernel.Threading
 
                 context.CriticalSection.Leave();
 
-                Thread.Sleep(RoundRobinTimeQuantumMs);
+                HighPrecisionThreadSleep.Wait(RoundRobinTimeQuantumMs);
             }
         }
 
