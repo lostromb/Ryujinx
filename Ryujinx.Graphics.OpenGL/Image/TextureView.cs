@@ -1,6 +1,8 @@
 using OpenTK.Graphics.OpenGL;
+using Ryujinx.Common;
 using Ryujinx.Graphics.GAL;
 using System;
+using System.Buffers;
 
 namespace Ryujinx.Graphics.OpenGL.Image
 {
@@ -9,6 +11,7 @@ namespace Ryujinx.Graphics.OpenGL.Image
         private readonly Renderer _renderer;
 
         private readonly TextureStorage _parent;
+        private byte[] _pooledTexDataBuffer;
 
         public ITextureInfo Storage => _parent;
 
@@ -252,22 +255,34 @@ namespace Ryujinx.Graphics.OpenGL.Image
             }
         }
 
-        public void SetData(ReadOnlySpan<byte> data)
+        public void SetData(PooledSpan data)
         {
+            if (_pooledTexDataBuffer != null)
+            {
+                ArrayPool<byte>.Shared.Return(_pooledTexDataBuffer);
+            }
+
             unsafe
             {
-                fixed (byte* ptr = data)
+                fixed (byte* ptr = data.AsSpan())
                 {
                     ReadFrom((IntPtr)ptr, data.Length);
                 }
             }
+
+            _pooledTexDataBuffer = data.PooledArray;
         }
 
-        public void SetData(ReadOnlySpan<byte> data, int layer, int level)
+        public void SetData(PooledSpan data, int layer, int level)
         {
+            if (_pooledTexDataBuffer != null)
+            {
+                ArrayPool<byte>.Shared.Return(_pooledTexDataBuffer);
+            }
+
             unsafe
             {
-                fixed (byte* ptr = data)
+                fixed (byte* ptr = data.AsSpan())
                 {
                     int width = Math.Max(Info.Width >> level, 1);
                     int height = Math.Max(Info.Height >> level, 1);
@@ -275,6 +290,8 @@ namespace Ryujinx.Graphics.OpenGL.Image
                     ReadFrom2D((IntPtr)ptr, layer, level, width, height);
                 }
             }
+
+            _pooledTexDataBuffer = data.PooledArray;
         }
 
         public void ReadFromPbo(int offset, int size)
@@ -656,6 +673,11 @@ namespace Ryujinx.Graphics.OpenGL.Image
             if (hadHandle)
             {
                 _parent.DecrementViewsCount();
+            }
+
+            if (_pooledTexDataBuffer != null)
+            {
+                ArrayPool<byte>.Shared.Return(_pooledTexDataBuffer);
             }
         }
 

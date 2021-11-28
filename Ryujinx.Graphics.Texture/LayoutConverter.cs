@@ -1,5 +1,6 @@
 using Ryujinx.Common;
 using System;
+using System.Buffers;
 using System.Runtime.Intrinsics;
 using static Ryujinx.Graphics.Texture.BlockLinearConstants;
 
@@ -93,7 +94,7 @@ namespace Ryujinx.Graphics.Texture
             };
         }
 
-        public static Span<byte> ConvertBlockLinearToLinear(
+        public static PooledSpan ConvertBlockLinearToLinear(
             int width,
             int height,
             int depth,
@@ -118,7 +119,8 @@ namespace Ryujinx.Graphics.Texture
                 blockHeight,
                 bytesPerPixel);
 
-            Span<byte> output = new byte[outSize];
+            byte[] pooledArray = ArrayPool<byte>.Shared.Rent(outSize);
+            Span<byte> output = pooledArray.AsSpan(0, outSize);
 
             int outOffs = 0;
 
@@ -240,10 +242,11 @@ namespace Ryujinx.Graphics.Texture
                     _ => throw new NotSupportedException($"Unable to convert ${bytesPerPixel} bpp pixel format.")
                 };
             }
-            return output;
+
+            return new PooledSpan(0, output.Length, pooledArray);
         }
 
-        public static Span<byte> ConvertLinearStridedToLinear(
+        public static PooledSpan ConvertLinearStridedToLinear(
             int width,
             int height,
             int blockWidth,
@@ -258,20 +261,20 @@ namespace Ryujinx.Graphics.Texture
             int outStride = BitUtils.AlignUp(w * bytesPerPixel, HostStrideAlignment);
             int lineSize = Math.Min(stride, outStride);
 
-            Span<byte> output = new byte[h * outStride];
+            byte[] pooledArray = ArrayPool<byte>.Shared.Rent(h * outStride);
 
             int outOffs = 0;
             int inOffs = 0;
 
             for (int y = 0; y < h; y++)
             {
-                data.Slice(inOffs, lineSize).CopyTo(output.Slice(outOffs, lineSize));
+                data.Slice(inOffs, lineSize).CopyTo(new Span<byte>(pooledArray, outOffs, lineSize));
 
                 inOffs += stride;
                 outOffs += outStride;
             }
 
-            return output;
+            return new PooledSpan(0, h * outStride, pooledArray);
         }
 
         public static void ConvertLinearToBlockLinear(

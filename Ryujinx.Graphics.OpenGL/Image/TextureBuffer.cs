@@ -1,6 +1,8 @@
 ﻿using OpenTK.Graphics.OpenGL;
+using Ryujinx.Common;
 using Ryujinx.Graphics.GAL;
 using System;
+using System.Buffers;
 
 namespace Ryujinx.Graphics.OpenGL.Image
 {
@@ -10,6 +12,7 @@ namespace Ryujinx.Graphics.OpenGL.Image
         private int _bufferOffset;
         private int _bufferSize;
         private int _bufferCount;
+        private byte[] _pooledTexDataBuffer;
 
         private BufferHandle _buffer;
 
@@ -43,12 +46,18 @@ namespace Ryujinx.Graphics.OpenGL.Image
             return Buffer.GetData(_renderer, _buffer, _bufferOffset, _bufferSize);
         }
 
-        public void SetData(ReadOnlySpan<byte> data)
+        public void SetData(PooledSpan data)
         {
-            Buffer.SetData(_buffer, _bufferOffset, data.Slice(0, Math.Min(data.Length, _bufferSize)));
+            if (_pooledTexDataBuffer != null)
+            {
+                ArrayPool<byte>.Shared.Return(_pooledTexDataBuffer);
+            }
+
+            Buffer.SetData(_buffer, _bufferOffset, data.AsSpan().Slice(0, Math.Min(data.Length, _bufferSize)));
+            _pooledTexDataBuffer = data.PooledArray;
         }
 
-        public void SetData(ReadOnlySpan<byte> data, int layer, int level)
+        public void SetData(PooledSpan data, int layer, int level)
         {
             throw new NotSupportedException();
         }
@@ -88,6 +97,11 @@ namespace Ryujinx.Graphics.OpenGL.Image
 
         public void Release()
         {
+            if (_pooledTexDataBuffer != null)
+            {
+                ArrayPool<byte>.Shared.Return(_pooledTexDataBuffer);
+            }
+
             Dispose();
         }
     }

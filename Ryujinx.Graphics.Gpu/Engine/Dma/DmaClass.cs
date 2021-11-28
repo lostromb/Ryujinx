@@ -193,7 +193,7 @@ namespace Ryujinx.Graphics.Gpu.Engine.Dma
 
                     if (target != null)
                     {
-                        ReadOnlySpan<byte> data;
+                        PooledSpan data;
                         if (srcLinear)
                         {
                             data = LayoutConverter.ConvertLinearStridedToLinear(
@@ -278,23 +278,32 @@ namespace Ryujinx.Graphics.Gpu.Engine.Dma
                     return true;
                 }
 
-                // OPT: This allocates a (potentially) huge temporary array and then copies an existing
-                // region of memory into it, data that might get overwritten entirely anyways. Ideally this should
-                // all be rewritten to use pooled arrays, but that gets complicated with packed data and strides
-                Span<byte> dstSpan = memoryManager.GetSpan(dstGpuVa + (ulong)dstBaseOffset, dstSize).ToArray();
-
-                bool _ = srcBpp switch
+                byte[] scratchBuffer = ArrayPool<byte>.Shared.Rent(dstSize);
+                try
                 {
-                    1 => Convert<byte>(dstSpan, srcSpan),
-                    2 => Convert<ushort>(dstSpan, srcSpan),
-                    4 => Convert<uint>(dstSpan, srcSpan),
-                    8 => Convert<ulong>(dstSpan, srcSpan),
-                    12 => Convert<Bpp12Pixel>(dstSpan, srcSpan),
-                    16 => Convert<Vector128<byte>>(dstSpan, srcSpan),
-                    _ => throw new NotSupportedException($"Unable to copy ${srcBpp} bpp pixel format.")
-                };
+                    // Use a pooled array as the scratch buffer for the DMA transfer.
+                    // Nonlinear transfers won't write to every address, so we copy what's already
+                    // in dst to the scratch buffer so it doesn't get lost
+                    Span<byte> dstSpan = scratchBuffer.AsSpan();
+                    memoryManager.GetSpan(dstGpuVa + (ulong)dstBaseOffset, dstSize).CopyTo(dstSpan);
 
-                memoryManager.Write(dstGpuVa + (ulong)dstBaseOffset, dstSpan);
+                    bool _ = srcBpp switch
+                    {
+                        1 => Convert<byte>(dstSpan, srcSpan),
+                        2 => Convert<ushort>(dstSpan, srcSpan),
+                        4 => Convert<uint>(dstSpan, srcSpan),
+                        8 => Convert<ulong>(dstSpan, srcSpan),
+                        12 => Convert<Bpp12Pixel>(dstSpan, srcSpan),
+                        16 => Convert<Vector128<byte>>(dstSpan, srcSpan),
+                        _ => throw new NotSupportedException($"Unable to copy ${srcBpp} bpp pixel format.")
+                    };
+
+                    memoryManager.Write(dstGpuVa + (ulong)dstBaseOffset, dstSpan);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(scratchBuffer);
+                }
             }
             else
             {

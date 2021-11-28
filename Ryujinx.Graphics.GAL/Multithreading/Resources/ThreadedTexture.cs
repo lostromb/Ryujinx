@@ -1,4 +1,5 @@
-﻿using Ryujinx.Graphics.GAL.Multithreading.Commands.Texture;
+﻿using Ryujinx.Common;
+using Ryujinx.Graphics.GAL.Multithreading.Commands.Texture;
 using Ryujinx.Graphics.GAL.Multithreading.Model;
 using System;
 
@@ -89,15 +90,15 @@ namespace Ryujinx.Graphics.GAL.Multithreading.Resources
             }
         }
 
-        public void SetData(ReadOnlySpan<byte> data)
+        public void SetData(PooledSpan data)
         {
-            _renderer.New<TextureSetDataCommand>().Set(Ref(this), Ref(data.ToArray()));
+            _renderer.New<TextureSetDataCommand>().Set(Ref(this), Ref(new ThreadedTextureData(data)));
             _renderer.QueueCommand();
         }
 
-        public void SetData(ReadOnlySpan<byte> data, int layer, int level)
+        public void SetData(PooledSpan data, int layer, int level)
         {
-            _renderer.New<TextureSetDataSliceCommand>().Set(Ref(this), Ref(data.ToArray()), layer, level);
+            _renderer.New<TextureSetDataSliceCommand>().Set(Ref(this), Ref(new ThreadedTextureData(data)), layer, level); // todo implement
             _renderer.QueueCommand();
         }
 
