@@ -781,6 +781,7 @@ namespace Ryujinx.Graphics.Gpu.Image
             {
                 using (PooledBuffer<byte> input = BufferPool<byte>.Rent(data.Length))
                 {
+                    Logger.Warning?.Print(LogClass.Gpu, "Decoding ASTC texture");
                     data.CopyTo(input.AsSpan);
                     if (!AstcDecoder.TryDecodeToRgba8P(
                         input,
@@ -803,10 +804,12 @@ namespace Ryujinx.Graphics.Gpu.Image
             }
             else if (Target == Target.Texture3D && Info.FormatInfo.Format.IsBc4())
             {
+                Logger.Warning?.Print(LogClass.Gpu, "Decoding BC4 texture");
                 data = BCnDecoder.DecodeBC4(data, width, height, depth, levels, layers, Info.FormatInfo.Format == Format.Bc4Snorm).ToArrayWasteful();
             }
             else if (Target == Target.Texture3D && Info.FormatInfo.Format.IsBc5())
             {
+                Logger.Warning?.Print(LogClass.Gpu, "Decoding BC5 texture");
                 data = BCnDecoder.DecodeBC5(data, width, height, depth, levels, layers, Info.FormatInfo.Format == Format.Bc5Snorm).ToArrayWasteful();
             }
 
