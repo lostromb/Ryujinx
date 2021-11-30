@@ -1,5 +1,6 @@
 using Ryujinx.Common;
 using Ryujinx.Common.Logging;
+using Ryujinx.Common.Pools;
 using Ryujinx.Graphics.GAL;
 using Ryujinx.Graphics.Gpu.Memory;
 using Ryujinx.Graphics.Texture;
@@ -778,31 +779,35 @@ namespace Ryujinx.Graphics.Gpu.Image
             // - BC4/BC5 is not supported on 3D textures.
             if (!_context.Capabilities.SupportsAstcCompression && Info.FormatInfo.Format.IsAstc())
             {
-                if (!AstcDecoder.TryDecodeToRgba8P(
-                    data.ToArray(),
-                    Info.FormatInfo.BlockWidth,
-                    Info.FormatInfo.BlockHeight,
-                    width,
-                    height,
-                    depth,
-                    levels,
-                    layers,
-                    out Span<byte> decoded))
+                using (PooledBuffer<byte> input = BufferPool<byte>.Rent(data.Length))
                 {
-                    string texInfo = $"{Info.Target} {Info.FormatInfo.Format} {Info.Width}x{Info.Height}x{Info.DepthOrLayers} levels {Info.Levels}";
+                    data.CopyTo(input.AsSpan);
+                    if (!AstcDecoder.TryDecodeToRgba8P(
+                        input,
+                        Info.FormatInfo.BlockWidth,
+                        Info.FormatInfo.BlockHeight,
+                        width,
+                        height,
+                        depth,
+                        levels,
+                        layers,
+                        out PooledBuffer<byte> decoded))
+                    {
+                        string texInfo = $"{Info.Target} {Info.FormatInfo.Format} {Info.Width}x{Info.Height}x{Info.DepthOrLayers} levels {Info.Levels}";
 
-                    Logger.Debug?.Print(LogClass.Gpu, $"Invalid ASTC texture at 0x{Info.GpuAddress:X} ({texInfo}).");
+                        Logger.Debug?.Print(LogClass.Gpu, $"Invalid ASTC texture at 0x{Info.GpuAddress:X} ({texInfo}).");
+                    }
+
+                    data = decoded.ToArrayWasteful();
                 }
-
-                data = decoded;
             }
             else if (Target == Target.Texture3D && Info.FormatInfo.Format.IsBc4())
             {
-                data = BCnDecoder.DecodeBC4(data, width, height, depth, levels, layers, Info.FormatInfo.Format == Format.Bc4Snorm);
+                data = BCnDecoder.DecodeBC4(data, width, height, depth, levels, layers, Info.FormatInfo.Format == Format.Bc4Snorm).ToArrayWasteful();
             }
             else if (Target == Target.Texture3D && Info.FormatInfo.Format.IsBc5())
             {
-                data = BCnDecoder.DecodeBC5(data, width, height, depth, levels, layers, Info.FormatInfo.Format == Format.Bc5Snorm);
+                data = BCnDecoder.DecodeBC5(data, width, height, depth, levels, layers, Info.FormatInfo.Format == Format.Bc5Snorm).ToArrayWasteful();
             }
 
             return data;
