@@ -754,7 +754,7 @@ namespace Ryujinx.Graphics.Gpu.Image
                     Info.FormatInfo.BlockHeight,
                     Info.Stride,
                     Info.FormatInfo.BytesPerPixel,
-                    data);
+                    data).ToArrayWasteful();
             }
             else
             {
@@ -771,7 +771,7 @@ namespace Ryujinx.Graphics.Gpu.Image
                     Info.GobBlocksInZ,
                     Info.GobBlocksInTileX,
                     _sizeInfo,
-                    data);
+                    data).ToArrayWasteful();
             }
 
             // Handle compressed cases not supported by the host:
