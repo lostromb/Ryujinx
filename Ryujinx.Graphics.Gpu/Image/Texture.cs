@@ -686,7 +686,7 @@ namespace Ryujinx.Graphics.Gpu.Image
                 }
             }
 
-            data = ConvertToHostCompatibleFormat(data);
+            data = ConvertToHostCompatibleFormat(data).ToArrayWasteful();
 
             HostTexture.SetData(data);
 
@@ -732,8 +732,9 @@ namespace Ryujinx.Graphics.Gpu.Image
         /// </summary>
         /// <param name="data">Data to be converted</param>
         /// <returns>Converted data</returns>
-        public ReadOnlySpan<byte> ConvertToHostCompatibleFormat(ReadOnlySpan<byte> data, int level = 0, bool single = false)
+        public PooledBuffer<byte> ConvertToHostCompatibleFormat(ReadOnlySpan<byte> data, int level = 0, bool single = false)
         {
+            PooledBuffer<byte> returnVal;
             int width = Info.Width;
             int height = Info.Height;
 
@@ -747,18 +748,18 @@ namespace Ryujinx.Graphics.Gpu.Image
 
             if (Info.IsLinear)
             {
-                data = LayoutConverter.ConvertLinearStridedToLinear(
+                returnVal = LayoutConverter.ConvertLinearStridedToLinear(
                     width,
                     height,
                     Info.FormatInfo.BlockWidth,
                     Info.FormatInfo.BlockHeight,
                     Info.Stride,
                     Info.FormatInfo.BytesPerPixel,
-                    data).ToArrayWasteful();
+                    data);
             }
             else
             {
-                data = LayoutConverter.ConvertBlockLinearToLinear(
+                returnVal = LayoutConverter.ConvertBlockLinearToLinear(
                     width,
                     height,
                     depth,
@@ -771,7 +772,7 @@ namespace Ryujinx.Graphics.Gpu.Image
                     Info.GobBlocksInZ,
                     Info.GobBlocksInTileX,
                     _sizeInfo,
-                    data).ToArrayWasteful();
+                    data);
             }
 
             // Handle compressed cases not supported by the host:
@@ -779,41 +780,38 @@ namespace Ryujinx.Graphics.Gpu.Image
             // - BC4/BC5 is not supported on 3D textures.
             if (!_context.Capabilities.SupportsAstcCompression && Info.FormatInfo.Format.IsAstc())
             {
-                using (PooledBuffer<byte> input = BufferPool<byte>.Rent(data.Length))
+                Logger.Warning?.Print(LogClass.Gpu, "Decoding ASTC texture");
+                if (!AstcDecoder.TryDecodeToRgba8P(
+                    returnVal,
+                    Info.FormatInfo.BlockWidth,
+                    Info.FormatInfo.BlockHeight,
+                    width,
+                    height,
+                    depth,
+                    levels,
+                    layers,
+                    out PooledBuffer<byte> decoded))
                 {
-                    Logger.Warning?.Print(LogClass.Gpu, "Decoding ASTC texture");
-                    data.CopyTo(input.AsSpan);
-                    if (!AstcDecoder.TryDecodeToRgba8P(
-                        input,
-                        Info.FormatInfo.BlockWidth,
-                        Info.FormatInfo.BlockHeight,
-                        width,
-                        height,
-                        depth,
-                        levels,
-                        layers,
-                        out PooledBuffer<byte> decoded))
-                    {
-                        string texInfo = $"{Info.Target} {Info.FormatInfo.Format} {Info.Width}x{Info.Height}x{Info.DepthOrLayers} levels {Info.Levels}";
+                    string texInfo = $"{Info.Target} {Info.FormatInfo.Format} {Info.Width}x{Info.Height}x{Info.DepthOrLayers} levels {Info.Levels}";
 
-                        Logger.Debug?.Print(LogClass.Gpu, $"Invalid ASTC texture at 0x{Info.GpuAddress:X} ({texInfo}).");
-                    }
-
-                    data = decoded.ToArrayWasteful();
+                    Logger.Debug?.Print(LogClass.Gpu, $"Invalid ASTC texture at 0x{Info.GpuAddress:X} ({texInfo}).");
                 }
+
+                returnVal.Dispose(); // replacing compressed data buffer with decoded one, so dispose of old
+                returnVal = decoded;
             }
             else if (Target == Target.Texture3D && Info.FormatInfo.Format.IsBc4())
             {
                 Logger.Warning?.Print(LogClass.Gpu, "Decoding BC4 texture");
-                data = BCnDecoder.DecodeBC4(data, width, height, depth, levels, layers, Info.FormatInfo.Format == Format.Bc4Snorm).ToArrayWasteful();
+                returnVal = BCnDecoder.DecodeBC4(returnVal.AsSpan, width, height, depth, levels, layers, Info.FormatInfo.Format == Format.Bc4Snorm);
             }
             else if (Target == Target.Texture3D && Info.FormatInfo.Format.IsBc5())
             {
                 Logger.Warning?.Print(LogClass.Gpu, "Decoding BC5 texture");
-                data = BCnDecoder.DecodeBC5(data, width, height, depth, levels, layers, Info.FormatInfo.Format == Format.Bc5Snorm).ToArrayWasteful();
+                returnVal = BCnDecoder.DecodeBC5(returnVal.AsSpan, width, height, depth, levels, layers, Info.FormatInfo.Format == Format.Bc5Snorm);
             }
 
-            return data;
+            return returnVal;
         }
 
         /// <summary>
