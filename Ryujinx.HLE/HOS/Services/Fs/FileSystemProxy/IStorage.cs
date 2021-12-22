@@ -1,6 +1,7 @@
 using LibHac;
 using LibHac.Sf;
 using Ryujinx.HLE.HOS.Ipc;
+using System;
 
 namespace Ryujinx.HLE.HOS.Services.Fs.FileSystemProxy
 {
@@ -33,6 +34,14 @@ namespace Ryujinx.HLE.HOS.Services.Fs.FileSystemProxy
                 byte[] data = new byte[size];
 
                 Result result = _baseStorage.Target.Read((long)offset, new OutBuffer(data), (long)size);
+                if (result.IsFailure())
+                {
+                    Console.WriteLine(string.Format("Read offset {0} size {1} FAILED {2}", offset, size, result.ToStringWithName()));
+                }
+                else
+                {
+                    Console.WriteLine(string.Format("Read offset {0} size {1}", offset, size));
+                }
 
                 context.Memory.Write(buffDesc.Position, data);
 

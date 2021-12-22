@@ -1,0 +1,40 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net5.0</TargetFramework>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <VersionPrefix>0.13.3</VersionPrefix>
+    <PathMap Condition=" '$(BuildType)' == 'Release' ">$(MSBuildProjectDirectory)=C:/hactoolnet/</PathMap>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="CA00000003_XS00000020" />
+    <EmbeddedResource Include="CA00000003_XS00000020" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LibHac\LibHac.csproj" />
+  </ItemGroup>
+
+  <!-- Options for use with CoreRT -->
+  <ItemGroup Condition=" $(BuildType.StartsWith('native')) ">
+    <PackageReference Include="Microsoft.DotNet.ILCompiler" Version="6.0.0-*" />
+  </ItemGroup>
+
+  <PropertyGroup Condition=" $(BuildType.StartsWith('native')) and '$(BuildType)' != 'native-untrimmed' ">
+    <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
+    <IlcGenerateCompleteTypeMetadata>false</IlcGenerateCompleteTypeMetadata>
+    <IlcOptimizationPreference>Speed</IlcOptimizationPreference>
+    <RootAllApplicationAssemblies>false</RootAllApplicationAssemblies>
+  </PropertyGroup>
+
+  <!-- No-reflection mode might not work on Linux if the HOME environment variable is not set -->
+  <PropertyGroup Condition=" '$(BuildType)' == 'native-noreflection' ">
+    <IlcDisableReflection>true</IlcDisableReflection>
+    <DefineConstants>CORERT_NO_REFLECTION;$(DefineConstants)</DefineConstants>
+  </PropertyGroup>
+
+</Project>
