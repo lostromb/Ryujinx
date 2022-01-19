@@ -245,15 +245,9 @@ namespace Ryujinx.Graphics.GAL.Multithreading
             _renderer.QueueCommand();
         }
 
-        public void SetSampler(int binding, ISampler sampler)
+        public void SetScissors(ReadOnlySpan<Rectangle<int>> scissors)
         {
-            _renderer.New<SetSamplerCommand>().Set(binding, Ref(sampler));
-            _renderer.QueueCommand();
-        }
-
-        public void SetScissor(int index, bool enable, int x, int y, int width, int height)
-        {
-            _renderer.New<SetScissorCommand>().Set(index, enable, x, y, width, height);
+            _renderer.New<SetScissorsCommand>().Set(_renderer.CopySpan(scissors));
             _renderer.QueueCommand();
         }
 
@@ -269,9 +263,9 @@ namespace Ryujinx.Graphics.GAL.Multithreading
             _renderer.QueueCommand();
         }
 
-        public void SetTexture(int binding, ITexture texture)
+        public void SetTextureAndSampler(int binding, ITexture texture, ISampler sampler)
         {
-            _renderer.New<SetTextureCommand>().Set(binding, Ref(texture));
+            _renderer.New<SetTextureAndSamplerCommand>().Set(binding, Ref(texture), Ref(sampler));
             _renderer.QueueCommand();
         }
 
@@ -353,9 +347,9 @@ namespace Ryujinx.Graphics.GAL.Multithreading
             return false;
         }
 
-        public void UpdateRenderScale(ShaderStage stage, ReadOnlySpan<float> scales, int textureCount, int imageCount)
+        public void UpdateRenderScale(ReadOnlySpan<float> scales, int totalCount, int fragmentCount)
         {
-            _renderer.New<UpdateRenderScaleCommand>().Set(stage, _renderer.CopySpan(scales.Slice(0, textureCount + imageCount)), textureCount, imageCount);
+            _renderer.New<UpdateRenderScaleCommand>().Set(_renderer.CopySpan(scales.Slice(0, totalCount)), totalCount, fragmentCount);
             _renderer.QueueCommand();
         }
     }

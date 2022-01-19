@@ -14,7 +14,7 @@ namespace Ryujinx.Configuration
         /// <summary>
         /// The current version of the file format
         /// </summary>
-        public const int CurrentVersion = 34;
+        public const int CurrentVersion = 35;
 
         /// <summary>
         /// Version of the configuration file format
@@ -264,6 +264,11 @@ namespace Ryujinx.Configuration
         /// Input configurations
         /// </summary>
         public List<InputConfig> InputConfig { get; set; }
+
+        /// <summary>
+        /// Graphics backend
+        /// </summary>
+        public GraphicsBackend GraphicsBackend { get; set; }
 
         /// <summary>
         /// Loads a configuration file from disk
