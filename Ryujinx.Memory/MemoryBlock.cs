@@ -11,6 +11,8 @@ namespace Ryujinx.Memory
     {
         private readonly bool _usesSharedMemory;
         private readonly bool _isMirror;
+        private readonly bool _viewCompatible;
+        private readonly bool _forceWindows4KBView;
         private IntPtr _sharedMemory;
         private IntPtr _pointer;
 
@@ -36,12 +38,14 @@ namespace Ryujinx.Memory
             if (flags.HasFlag(MemoryAllocationFlags.Mirrorable))
             {
                 _sharedMemory = MemoryManagement.CreateSharedMemory(size, flags.HasFlag(MemoryAllocationFlags.Reserve));
-                _pointer = MemoryManagement.MapSharedMemory(_sharedMemory);
+                _pointer = MemoryManagement.MapSharedMemory(_sharedMemory, size);
                 _usesSharedMemory = true;
             }
             else if (flags.HasFlag(MemoryAllocationFlags.Reserve))
             {
-                _pointer = MemoryManagement.Reserve(size);
+                _viewCompatible = flags.HasFlag(MemoryAllocationFlags.ViewCompatible);
+                _forceWindows4KBView = flags.HasFlag(MemoryAllocationFlags.ForceWindows4KBViewMapping);
+                _pointer = MemoryManagement.Reserve(size, _viewCompatible);
             }
             else
             {
@@ -60,7 +64,7 @@ namespace Ryujinx.Memory
         /// <exception cref="PlatformNotSupportedException">Throw when the current platform is not supported</exception>
         private MemoryBlock(ulong size, IntPtr sharedMemory)
         {
-            _pointer = MemoryManagement.MapSharedMemory(sharedMemory);
+            _pointer = MemoryManagement.MapSharedMemory(sharedMemory, size);
             Size = size;
             _usesSharedMemory = true;
             _isMirror = true;
@@ -113,6 +117,37 @@ namespace Ryujinx.Memory
         }
 
         /// <summary>
+        /// Maps a view of memory from another memory block.
+        /// </summary>
+        /// <param name="srcBlock">Memory block from where the backing memory will be taken</param>
+        /// <param name="srcOffset">Offset on <paramref name="srcBlock"/> of the region that should be mapped</param>
+        /// <param name="dstOffset">Offset to map the view into on this block</param>
+        /// <param name="size">Size of the range to be mapped</param>
+        /// <exception cref="NotSupportedException">Throw when the source memory block does not support mirroring</exception>
+        /// <exception cref="ObjectDisposedException">Throw when the memory block has already been disposed</exception>
+        /// <exception cref="InvalidMemoryRegionException">Throw when either <paramref name="offset"/> or <paramref name="size"/> are out of range</exception>
+        public void MapView(MemoryBlock srcBlock, ulong srcOffset, ulong dstOffset, ulong size)
+        {
+            if (srcBlock._sharedMemory == IntPtr.Zero)
+            {
+                throw new ArgumentException("The source memory block is not mirrorable, and thus cannot be mapped on the current block.");
+            }
+
+            MemoryManagement.MapView(srcBlock._sharedMemory, srcOffset, GetPointerInternal(dstOffset, size), size, _forceWindows4KBView);
+        }
+
+        /// <summary>
+        /// Unmaps a view of memory from another memory block.
+        /// </summary>
+        /// <param name="srcBlock">Memory block from where the backing memory was taken during map</param>
+        /// <param name="offset">Offset of the view previously mapped with <see cref="MapView"/></param>
+        /// <param name="size">Size of the range to be unmapped</param>
+        public void UnmapView(MemoryBlock srcBlock, ulong offset, ulong size)
+        {
+            MemoryManagement.UnmapView(srcBlock._sharedMemory, GetPointerInternal(offset, size), size, _forceWindows4KBView);
+        }
+
+        /// <summary>
         /// Reprotects a region of memory.
         /// </summary>
         /// <param name="offset">Starting offset of the range to be reprotected</param>
@@ -124,21 +159,7 @@ namespace Ryujinx.Memory
         /// <exception cref="MemoryProtectionException">Throw when <paramref name="permission"/> is invalid</exception>
         public void Reprotect(ulong offset, ulong size, MemoryPermission permission, bool throwOnFail = true)
         {
-            MemoryManagement.Reprotect(GetPointerInternal(offset, size), size, permission, throwOnFail);
-        }
-
-        /// <summary>
-        /// Remaps a region of memory into this memory block.
-        /// </summary>
-        /// <param name="offset">Starting offset of the range to be remapped into</param>
-        /// <param name="sourceAddress">Starting offset of the range to be remapped from</param>
-        /// <param name="size">Size of the range to be remapped</param>
-        /// <exception cref="ObjectDisposedException">Throw when the memory block has already been disposed</exception>
-        /// <exception cref="InvalidMemoryRegionException">Throw when either <paramref name="offset"/> or <paramref name="size"/> are out of range</exception>
-        /// <exception cref="MemoryProtectionException">Throw when <paramref name="permission"/> is invalid</exception>
-        public void Remap(ulong offset, IntPtr sourceAddress, ulong size)
-        {
-            MemoryManagement.Remap(GetPointerInternal(offset, size), sourceAddress, size);
+            MemoryManagement.Reprotect(GetPointerInternal(offset, size), size, permission, _viewCompatible, _forceWindows4KBView, throwOnFail);
         }
 
         /// <summary>
@@ -274,7 +295,7 @@ namespace Ryujinx.Memory
         /// <exception cref="ObjectDisposedException">Throw when the memory block has already been disposed</exception>
         /// <exception cref="InvalidMemoryRegionException">Throw when either <paramref name="offset"/> or <paramref name="size"/> are out of range</exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public nuint GetPointer(ulong offset, ulong size) => (nuint)(ulong)GetPointerInternal(offset, size);
+        public IntPtr GetPointer(ulong offset, ulong size) => GetPointerInternal(offset, size);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private IntPtr GetPointerInternal(ulong offset, ulong size)
@@ -367,7 +388,7 @@ namespace Ryujinx.Memory
             {
                 if (_usesSharedMemory)
                 {
-                    MemoryManagement.UnmapSharedMemory(ptr);
+                    MemoryManagement.UnmapSharedMemory(ptr, Size);
 
                     if (_sharedMemory != IntPtr.Zero && !_isMirror)
                     {
@@ -382,7 +403,27 @@ namespace Ryujinx.Memory
             }
         }
 
-        private void ThrowObjectDisposed() => throw new ObjectDisposedException(nameof(MemoryBlock));
-        private void ThrowInvalidMemoryRegionException() => throw new InvalidMemoryRegionException();
+        /// <summary>
+        /// Checks if the specified memory allocation flags are supported on the current platform.
+        /// </summary>
+        /// <param name="flags">Flags to be checked</param>
+        /// <returns>True if the platform supports all the flags, false otherwise</returns>
+        public static bool SupportsFlags(MemoryAllocationFlags flags)
+        {
+            if (flags.HasFlag(MemoryAllocationFlags.ViewCompatible))
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    return OperatingSystem.IsWindowsVersionAtLeast(10, 0, 17134);
+                }
+
+                return OperatingSystem.IsLinux() || OperatingSystem.IsMacOS();
+            }
+
+            return true;
+        }
+
+        private static void ThrowObjectDisposed() => throw new ObjectDisposedException(nameof(MemoryBlock));
+        private static void ThrowInvalidMemoryRegionException() => throw new InvalidMemoryRegionException();
     }
 }
