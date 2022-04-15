@@ -8,7 +8,7 @@ namespace Ryujinx.Common
     {
         public bool Equals(T x, T y)
         {
-            return x == y;
+            return object.ReferenceEquals(x, y);
         }
 
         public int GetHashCode([DisallowNull] T obj)

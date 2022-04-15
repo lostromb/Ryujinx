@@ -363,6 +363,7 @@ namespace Ryujinx.Graphics.Gpu
 
             PhysicalMemoryRegistry.Clear();
 
+            // AARDVARK Hang happens here when running deferred actions on a disposed renderer
             RunDeferredActions();
         }
     }

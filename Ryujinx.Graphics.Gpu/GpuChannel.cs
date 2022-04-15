@@ -111,6 +111,7 @@ namespace Ryujinx.Graphics.Gpu
         {
             TextureManager.Dispose();
 
+            // AARDVARK Hang happens here when this is a deferred action
             var oldMemoryManager = Interlocked.Exchange(ref _memoryManager, null);
             if (oldMemoryManager != null)
             {
