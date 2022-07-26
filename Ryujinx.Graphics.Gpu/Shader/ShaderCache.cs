@@ -1,4 +1,5 @@
 using Ryujinx.Common.Logging;
+using Ryujinx.Common.Profiling;
 using Ryujinx.Graphics.GAL;
 using Ryujinx.Graphics.Gpu.Engine.Threed;
 using Ryujinx.Graphics.Gpu.Memory;
@@ -210,23 +211,26 @@ namespace Ryujinx.Graphics.Gpu.Shader
                 return cpShader;
             }
 
-            ShaderSpecializationState specState = new ShaderSpecializationState(computeState);
-            GpuAccessorState gpuAccessorState = new GpuAccessorState(poolState, computeState, default, specState);
-            GpuAccessor gpuAccessor = new GpuAccessor(_context, channel, gpuAccessorState);
+            using (ProfiledScope shaderCompileProfiling = new ProfiledScope(RyujinxEventSource.Instance.CompileComputeShader))
+            {
+                ShaderSpecializationState specState = new ShaderSpecializationState(computeState);
+                GpuAccessorState gpuAccessorState = new GpuAccessorState(poolState, computeState, default, specState);
+                GpuAccessor gpuAccessor = new GpuAccessor(_context, channel, gpuAccessorState);
 
-            TranslatorContext translatorContext = DecodeComputeShader(gpuAccessor, gpuVa);
+                TranslatorContext translatorContext = DecodeComputeShader(gpuAccessor, gpuVa);
 
-            TranslatedShader translatedShader = TranslateShader(_dumper, channel, translatorContext, cachedGuestCode);
+                TranslatedShader translatedShader = TranslateShader(_dumper, channel, translatorContext, cachedGuestCode);
 
-            IProgram hostProgram = _context.Renderer.CreateProgram(new ShaderSource[] { CreateShaderSource(translatedShader.Program) }, new ShaderInfo(-1));
+                IProgram hostProgram = _context.Renderer.CreateProgram(new ShaderSource[] { CreateShaderSource(translatedShader.Program) }, new ShaderInfo(-1));
 
-            cpShader = new CachedShaderProgram(hostProgram, specState, translatedShader.Shader);
+                cpShader = new CachedShaderProgram(hostProgram, specState, translatedShader.Shader);
 
-            _computeShaderCache.Add(cpShader);
-            EnqueueProgramToSave(new ProgramToSave(cpShader, hostProgram));
-            _cpPrograms[gpuVa] = cpShader;
+                _computeShaderCache.Add(cpShader);
+                EnqueueProgramToSave(new ProgramToSave(cpShader, hostProgram));
+                _cpPrograms[gpuVa] = cpShader;
 
-            return cpShader;
+                return cpShader;
+            }
         }
 
         /// <summary>
@@ -260,92 +264,95 @@ namespace Ryujinx.Graphics.Gpu.Shader
                 return gpShaders;
             }
 
-            TransformFeedbackDescriptor[] transformFeedbackDescriptors = GetTransformFeedbackDescriptors(ref state);
-
-            ShaderSpecializationState specState = new ShaderSpecializationState(graphicsState, transformFeedbackDescriptors);
-            GpuAccessorState gpuAccessorState = new GpuAccessorState(poolState, default, graphicsState, specState, transformFeedbackDescriptors);
-
-            ReadOnlySpan<ulong> addressesSpan = addresses.AsSpan();
-
-            TranslatorContext[] translatorContexts = new TranslatorContext[Constants.ShaderStages + 1];
-            TranslatorContext nextStage = null;
-
-            for (int stageIndex = Constants.ShaderStages - 1; stageIndex >= 0; stageIndex--)
+            using (ProfiledScope shaderCompileProfiling = new ProfiledScope(RyujinxEventSource.Instance.CompileGraphicsShader))
             {
-                ulong gpuVa = addressesSpan[stageIndex + 1];
+                TransformFeedbackDescriptor[] transformFeedbackDescriptors = GetTransformFeedbackDescriptors(ref state);
 
-                if (gpuVa != 0)
+                ShaderSpecializationState specState = new ShaderSpecializationState(graphicsState, transformFeedbackDescriptors);
+                GpuAccessorState gpuAccessorState = new GpuAccessorState(poolState, default, graphicsState, specState, transformFeedbackDescriptors);
+
+                ReadOnlySpan<ulong> addressesSpan = addresses.AsSpan();
+
+                TranslatorContext[] translatorContexts = new TranslatorContext[Constants.ShaderStages + 1];
+                TranslatorContext nextStage = null;
+
+                for (int stageIndex = Constants.ShaderStages - 1; stageIndex >= 0; stageIndex--)
                 {
-                    GpuAccessor gpuAccessor = new GpuAccessor(_context, channel, gpuAccessorState, stageIndex);
-                    TranslatorContext currentStage = DecodeGraphicsShader(gpuAccessor, DefaultFlags, gpuVa);
+                    ulong gpuVa = addressesSpan[stageIndex + 1];
 
-                    if (nextStage != null)
+                    if (gpuVa != 0)
                     {
-                        currentStage.SetNextStage(nextStage);
-                    }
+                        GpuAccessor gpuAccessor = new GpuAccessor(_context, channel, gpuAccessorState, stageIndex);
+                        TranslatorContext currentStage = DecodeGraphicsShader(gpuAccessor, DefaultFlags, gpuVa);
 
-                    if (stageIndex == 0 && addresses.VertexA != 0)
-                    {
-                        translatorContexts[0] = DecodeGraphicsShader(gpuAccessor, DefaultFlags | TranslationFlags.VertexA, addresses.VertexA);
-                    }
+                        if (nextStage != null)
+                        {
+                            currentStage.SetNextStage(nextStage);
+                        }
 
-                    translatorContexts[stageIndex + 1] = currentStage;
-                    nextStage = currentStage;
-                }
-            }
+                        if (stageIndex == 0 && addresses.VertexA != 0)
+                        {
+                            translatorContexts[0] = DecodeGraphicsShader(gpuAccessor, DefaultFlags | TranslationFlags.VertexA, addresses.VertexA);
+                        }
 
-            CachedShaderStage[] shaders = new CachedShaderStage[Constants.ShaderStages + 1];
-            List<ShaderSource> shaderSources = new List<ShaderSource>();
-
-            for (int stageIndex = 0; stageIndex < Constants.ShaderStages; stageIndex++)
-            {
-                TranslatorContext currentStage = translatorContexts[stageIndex + 1];
-
-                if (currentStage != null)
-                {
-                    ShaderProgram program;
-
-                    if (stageIndex == 0 && translatorContexts[0] != null)
-                    {
-                        TranslatedShaderVertexPair translatedShader = TranslateShader(
-                            _dumper,
-                            channel,
-                            currentStage,
-                            translatorContexts[0],
-                            cachedGuestCode.VertexACode,
-                            cachedGuestCode.VertexBCode);
-
-                        shaders[0] = translatedShader.VertexA;
-                        shaders[1] = translatedShader.VertexB;
-                        program = translatedShader.Program;
-                    }
-                    else
-                    {
-                        byte[] code = cachedGuestCode.GetByIndex(stageIndex);
-
-                        TranslatedShader translatedShader = TranslateShader(_dumper, channel, currentStage, code);
-
-                        shaders[stageIndex + 1] = translatedShader.Shader;
-                        program = translatedShader.Program;
-                    }
-
-                    if (program != null)
-                    {
-                        shaderSources.Add(CreateShaderSource(program));
+                        translatorContexts[stageIndex + 1] = currentStage;
+                        nextStage = currentStage;
                     }
                 }
+
+                CachedShaderStage[] shaders = new CachedShaderStage[Constants.ShaderStages + 1];
+                List<ShaderSource> shaderSources = new List<ShaderSource>();
+
+                for (int stageIndex = 0; stageIndex < Constants.ShaderStages; stageIndex++)
+                {
+                    TranslatorContext currentStage = translatorContexts[stageIndex + 1];
+
+                    if (currentStage != null)
+                    {
+                        ShaderProgram program;
+
+                        if (stageIndex == 0 && translatorContexts[0] != null)
+                        {
+                            TranslatedShaderVertexPair translatedShader = TranslateShader(
+                                _dumper,
+                                channel,
+                                currentStage,
+                                translatorContexts[0],
+                                cachedGuestCode.VertexACode,
+                                cachedGuestCode.VertexBCode);
+
+                            shaders[0] = translatedShader.VertexA;
+                            shaders[1] = translatedShader.VertexB;
+                            program = translatedShader.Program;
+                        }
+                        else
+                        {
+                            byte[] code = cachedGuestCode.GetByIndex(stageIndex);
+
+                            TranslatedShader translatedShader = TranslateShader(_dumper, channel, currentStage, code);
+
+                            shaders[stageIndex + 1] = translatedShader.Shader;
+                            program = translatedShader.Program;
+                        }
+
+                        if (program != null)
+                        {
+                            shaderSources.Add(CreateShaderSource(program));
+                        }
+                    }
+                }
+
+                int fragmentOutputMap = shaders[5]?.Info.FragmentOutputMap ?? -1;
+                IProgram hostProgram = _context.Renderer.CreateProgram(shaderSources.ToArray(), new ShaderInfo(fragmentOutputMap));
+
+                gpShaders = new CachedShaderProgram(hostProgram, specState, shaders);
+
+                _graphicsShaderCache.Add(gpShaders);
+                EnqueueProgramToSave(new ProgramToSave(gpShaders, hostProgram));
+                _gpPrograms[addresses] = gpShaders;
+
+                return gpShaders;
             }
-
-            int fragmentOutputMap = shaders[5]?.Info.FragmentOutputMap ?? -1;
-            IProgram hostProgram = _context.Renderer.CreateProgram(shaderSources.ToArray(), new ShaderInfo(fragmentOutputMap));
-
-            gpShaders = new CachedShaderProgram(hostProgram, specState, shaders);
-
-            _graphicsShaderCache.Add(gpShaders);
-            EnqueueProgramToSave(new ProgramToSave(gpShaders, hostProgram));
-            _gpPrograms[addresses] = gpShaders;
-
-            return gpShaders;
         }
 
         /// <summary>

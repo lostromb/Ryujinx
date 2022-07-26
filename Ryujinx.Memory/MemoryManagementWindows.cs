@@ -1,4 +1,5 @@
-﻿using Ryujinx.Memory.WindowsShared;
+﻿using Ryujinx.Common.Profiling;
+using Ryujinx.Memory.WindowsShared;
 using System;
 using System.Runtime.Versioning;
 
@@ -36,26 +37,32 @@ namespace Ryujinx.Memory
 
         private static IntPtr AllocateInternal(IntPtr size, AllocationType flags = 0)
         {
-            IntPtr ptr = WindowsApi.VirtualAlloc(IntPtr.Zero, size, flags, MemoryProtection.ReadWrite);
-
-            if (ptr == IntPtr.Zero)
+            using (ProfiledScope scope = new ProfiledScope(RyujinxEventSource.Instance.AllocInternal, 1.0))
             {
-                throw new OutOfMemoryException();
-            }
+                IntPtr ptr = WindowsApi.VirtualAlloc(IntPtr.Zero, size, flags, MemoryProtection.ReadWrite);
 
-            return ptr;
+                if (ptr == IntPtr.Zero)
+                {
+                    throw new OutOfMemoryException();
+                }
+
+                return ptr;
+            }
         }
 
         private static IntPtr AllocateInternal2(IntPtr size, AllocationType flags = 0)
         {
-            IntPtr ptr = WindowsApi.VirtualAlloc2(WindowsApi.CurrentProcessHandle, IntPtr.Zero, size, flags, MemoryProtection.NoAccess, IntPtr.Zero, 0);
-
-            if (ptr == IntPtr.Zero)
+            using (ProfiledScope scope = new ProfiledScope(RyujinxEventSource.Instance.AllocInternal2, 1.0))
             {
-                throw new OutOfMemoryException();
-            }
+                IntPtr ptr = WindowsApi.VirtualAlloc2(WindowsApi.CurrentProcessHandle, IntPtr.Zero, size, flags, MemoryProtection.NoAccess, IntPtr.Zero, 0);
 
-            return ptr;
+                if (ptr == IntPtr.Zero)
+                {
+                    throw new OutOfMemoryException();
+                }
+
+                return ptr;
+            }
         }
 
         public static bool Commit(IntPtr location, IntPtr size)
@@ -83,26 +90,29 @@ namespace Ryujinx.Memory
 
             while (location != endLocation)
             {
-                WindowsApi.VirtualFree(location, (IntPtr)PageSize, AllocationType.Release | AllocationType.PreservePlaceholder);
-
-                var ptr = WindowsApi.MapViewOfFile3(
-                    sharedMemory,
-                    WindowsApi.CurrentProcessHandle,
-                    location,
-                    srcOffset,
-                    (IntPtr)PageSize,
-                    0x4000,
-                    MemoryProtection.ReadWrite,
-                    IntPtr.Zero,
-                    0);
-
-                if (ptr == IntPtr.Zero)
+                using (ProfiledScope scope = new ProfiledScope(RyujinxEventSource.Instance.MapViewOfFile3, 1.0))
                 {
-                    throw new WindowsApiException("MapViewOfFile3");
-                }
+                    WindowsApi.VirtualFree(location, (IntPtr)PageSize, AllocationType.Release | AllocationType.PreservePlaceholder);
 
-                location += PageSize;
-                srcOffset += PageSize;
+                    var ptr = WindowsApi.MapViewOfFile3(
+                        sharedMemory,
+                        WindowsApi.CurrentProcessHandle,
+                        location,
+                        srcOffset,
+                        (IntPtr)PageSize,
+                        0x4000,
+                        MemoryProtection.ReadWrite,
+                        IntPtr.Zero,
+                        0);
+
+                    if (ptr == IntPtr.Zero)
+                    {
+                        throw new WindowsApiException("MapViewOfFile3");
+                    }
+
+                    location += PageSize;
+                    srcOffset += PageSize;
+                }
             }
         }
 
@@ -162,22 +172,25 @@ namespace Ryujinx.Memory
 
         public static IntPtr CreateSharedMemory(IntPtr size, bool reserve)
         {
-            var prot = reserve ? FileMapProtection.SectionReserve : FileMapProtection.SectionCommit;
-
-            IntPtr handle = WindowsApi.CreateFileMapping(
-                WindowsApi.InvalidHandleValue,
-                IntPtr.Zero,
-                FileMapProtection.PageReadWrite | prot,
-                (uint)(size.ToInt64() >> 32),
-                (uint)size.ToInt64(),
-                null);
-
-            if (handle == IntPtr.Zero)
+            using (ProfiledScope scope = new ProfiledScope(RyujinxEventSource.Instance.CreateSharedMemory, 1.0))
             {
-                throw new OutOfMemoryException();
-            }
+                var prot = reserve ? FileMapProtection.SectionReserve : FileMapProtection.SectionCommit;
 
-            return handle;
+                IntPtr handle = WindowsApi.CreateFileMapping(
+                    WindowsApi.InvalidHandleValue,
+                    IntPtr.Zero,
+                    FileMapProtection.PageReadWrite | prot,
+                    (uint)(size.ToInt64() >> 32),
+                    (uint)size.ToInt64(),
+                    null);
+
+                if (handle == IntPtr.Zero)
+                {
+                    throw new OutOfMemoryException();
+                }
+
+                return handle;
+            }
         }
 
         public static void DestroySharedMemory(IntPtr handle)

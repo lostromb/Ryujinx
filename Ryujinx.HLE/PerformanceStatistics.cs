@@ -1,4 +1,6 @@
 ﻿using Ryujinx.Common;
+using Ryujinx.Common.Profiling;
+using System.Diagnostics.Tracing;
 using System.Timers;
 
 namespace Ryujinx.HLE
@@ -53,6 +55,8 @@ namespace Ryujinx.HLE
 
             _ticksToSeconds = 1.0 / PerformanceCounter.TicksPerSecond;
         }
+
+        
 
         private void ResetTimerElapsed(object sender, ElapsedEventArgs e)
         {
@@ -146,6 +150,11 @@ namespace Ryujinx.HLE
                 _accumulatedFrameTime[frameType] += elapsedFrameTime;
 
                 _framesRendered[frameType]++;
+            }
+
+            if (frameType == FrameTypeGame)
+            {
+                RyujinxEventSource.Instance.PresentFrame(elapsedFrameTime * 1000);
             }
         }
 
