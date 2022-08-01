@@ -1,21 +1,28 @@
 ﻿using OpenTK.Audio.OpenAL;
 using Ryujinx.Audio.Backends.Common;
 using Ryujinx.Audio.Common;
+using Ryujinx.Common.Utilities;
 using Ryujinx.Memory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Tracing;
+using System.Threading;
+using System.Xml.Linq;
 
 namespace Ryujinx.Audio.Backends.OpenAL
 {
     class OpenALHardwareDeviceSession : HardwareDeviceSessionOutputBase
     {
+        private const ulong DESIRED_BUFFERED_SAMPLES = Constants.TargetSampleRate * 25L / 1000; // Target 50ms of audio latency (for actual game audio)
+        private const ulong MIN_BUFFERED_SAMPLES = Constants.TargetSampleRate * 10L / 1000; // At 10ms or below, inject silence
         private OpenALHardwareDeviceDriver _driver;
         private int _sourceId;
         private ALFormat _targetFormat;
         private bool _isActive;
         private Queue<OpenALAudioBuffer> _queuedBuffers;
         private ulong _playedSampleCount;
+        private ulong _samplesBuffered;
 
         private object _lock = new object();
 
@@ -27,6 +34,7 @@ namespace Ryujinx.Audio.Backends.OpenAL
             _targetFormat = GetALFormat();
             _isActive = false;
             _playedSampleCount = 0;
+            _samplesBuffered = 0;
             SetVolume(requestedVolume);
         }
 
@@ -61,6 +69,7 @@ namespace Ryujinx.Audio.Backends.OpenAL
 
             if (State != ALSourceState.Playing)
             {
+                OpenALEventSource.Instance.StreamStarted();
                 AL.SourcePlay(_sourceId);
             }
         }
@@ -79,13 +88,17 @@ namespace Ryujinx.Audio.Backends.OpenAL
                 AL.BufferData(driverBuffer.BufferId, _targetFormat, buffer.Data, (int)RequestedSampleRate);
 
                 _queuedBuffers.Enqueue(driverBuffer);
+                _samplesBuffered += driverBuffer.SampleCount;
 
                 AL.SourceQueueBuffer(_sourceId, driverBuffer.BufferId);
+                OpenALEventSource.Instance.BufferReceived(driverBuffer.BufferId, (int)driverBuffer.SampleCount);
 
                 if (_isActive)
                 {
                     StartIfNotPlaying();
                 }
+
+                OpenALEventSource.Instance.LogBytesQueued((double)buffer.DataSize);
             }
         }
 
@@ -132,12 +145,15 @@ namespace Ryujinx.Audio.Backends.OpenAL
         {
             lock (_lock)
             {
-                if (!_queuedBuffers.TryPeek(out OpenALAudioBuffer driverBuffer))
+                foreach (var driverBuffer in _queuedBuffers)
                 {
-                    return true;
+                    if (driverBuffer.DriverIdentifier == buffer.DataPointer)
+                    {
+                        return false;
+                    }
                 }
 
-                return driverBuffer.DriverIdentifier != buffer.DataPointer;
+                return true;
             }
         }
 
@@ -151,6 +167,7 @@ namespace Ryujinx.Audio.Backends.OpenAL
 
         public bool Update()
         {
+            OpenALEventSource.Instance.UpdateStarted((double)_samplesBuffered * 1000 / (double)RequestedSampleRate);
             lock (_lock)
             {
                 if (_isActive)
@@ -165,16 +182,17 @@ namespace Ryujinx.Audio.Backends.OpenAL
 
                         int i = 0;
 
-                        while (_queuedBuffers.TryPeek(out OpenALAudioBuffer buffer) && i < bufferIds.Length)
+                        while (i < bufferIds.Length && _queuedBuffers.TryPeek(out OpenALAudioBuffer buffer))
                         {
-                            if (buffer.BufferId == bufferIds[i])
+                            OpenALEventSource.Instance.BufferDequeued(buffer.BufferId);
+                            if (buffer.DriverIdentifier != 0)
                             {
                                 _playedSampleCount += buffer.SampleCount;
-
-                                _queuedBuffers.TryDequeue(out _);
-
-                                i++;
                             }
+
+                            _samplesBuffered -= buffer.SampleCount;
+                            _queuedBuffers.Dequeue();
+                            i++;
                         }
 
                         Debug.Assert(i == bufferIds.Length, "Unknown buffer ids found!");
@@ -182,7 +200,30 @@ namespace Ryujinx.Audio.Backends.OpenAL
                         AL.DeleteBuffers(bufferIds);
                     }
 
-                    return releasedCount > 0;
+                    while (_samplesBuffered < MIN_BUFFERED_SAMPLES)
+                    {
+                        // Inject silence to make sure we have enough initial buffer to have smooth game audio
+                        OpenALAudioBuffer silenceBuffer = new OpenALAudioBuffer
+                        {
+                            DriverIdentifier = 0,
+                            BufferId = AL.GenBuffer(),
+                            SampleCount = Constants.TargetSampleCount,
+                        };
+
+                        byte[] silenceData = new byte[Constants.TargetSampleCount * RequestedChannelCount * Constants.TargetSampleSize];
+                        AL.BufferData(silenceBuffer.BufferId, _targetFormat, silenceData, (int)RequestedSampleRate);
+                        AL.SourceQueueBuffer(_sourceId, silenceBuffer.BufferId);
+                        _queuedBuffers.Enqueue(silenceBuffer);
+                        OpenALEventSource.Instance.SilenceInjected((int)silenceBuffer.SampleCount);
+                        _samplesBuffered += silenceBuffer.SampleCount;
+                    }
+
+                    if (_samplesBuffered < DESIRED_BUFFERED_SAMPLES)
+                    {
+                        OpenALEventSource.Instance.UpdateSignaled();
+                    }
+
+                    return _samplesBuffered < DESIRED_BUFFERED_SAMPLES;
                 }
 
                 return false;

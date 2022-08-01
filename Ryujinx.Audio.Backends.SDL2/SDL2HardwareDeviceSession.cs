@@ -107,6 +107,8 @@ namespace Ryujinx.Audio.Backends.SDL2
 
             ulong sampleCount = GetSampleCount(samples.Length);
 
+            SDL2EventSource.Instance.LogBytesQueued(samples.Length);
+
             ulong availaibleSampleCount = sampleCount;
 
             bool needUpdate = false;

@@ -4,6 +4,7 @@ using Ryujinx.Audio.Integration;
 using Ryujinx.Memory;
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using static Ryujinx.Audio.Integration.IHardwareDeviceDriver;
@@ -22,8 +23,17 @@ namespace Ryujinx.Audio.Backends.OpenAL
 
         public OpenALHardwareDeviceDriver()
         {
+            ALContextAttributes desiredAttributes = new ALContextAttributes(
+                frequency: (int)Constants.TargetSampleRate,
+                monoSources: 1,
+                stereoSources: 1,
+                refresh: 200,
+                sync: null);
+
             _device = ALC.OpenDevice("");
-            _context = ALC.CreateContext(_device, new ALContextAttributes());
+            _context = ALC.CreateContext(_device, desiredAttributes);
+            int[] attributes = ALC.GetAttributeArray(_device);
+            ALContextAttributes actualAttributes = ALC.GetContextAttributes(_device);
             _updateRequiredEvent = new ManualResetEvent(false);
             _pauseEvent = new ManualResetEvent(true);
             _sessions = new ConcurrentDictionary<OpenALHardwareDeviceSession, byte>();
@@ -99,8 +109,10 @@ namespace Ryujinx.Audio.Backends.OpenAL
         {
             ALC.MakeContextCurrent(_context);
 
+            Stopwatch timer = new Stopwatch();
             while (_stillRunning)
             {
+                timer.Restart();
                 bool updateRequired = false;
 
                 foreach (OpenALHardwareDeviceSession session in _sessions.Keys)
@@ -113,11 +125,18 @@ namespace Ryujinx.Audio.Backends.OpenAL
 
                 if (updateRequired)
                 {
+                    OpenALEventSource.Instance.LogBufferUpdateSignal();
                     _updateRequiredEvent.Set();
                 }
 
+                timer.Stop();
+                OpenALEventSource.Instance.LogDriverTimeSpentInUpdate(timer.ElapsedMillisecondsPrecise());
+
                 // If it's not slept it will waste cycles.
+                timer.Restart();
                 Thread.Sleep(10);
+                timer.Stop();
+                OpenALEventSource.Instance.LogDriverTimeSpentInSleep(timer.ElapsedMillisecondsPrecise());
             }
         }
 

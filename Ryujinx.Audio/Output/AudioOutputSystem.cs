@@ -1,7 +1,9 @@
 using Ryujinx.Audio.Common;
 using Ryujinx.Audio.Integration;
 using System;
+using System.Diagnostics.Tracing;
 using System.Threading;
+using System.Xml.Linq;
 
 namespace Ryujinx.Audio.Output
 {
@@ -175,6 +177,35 @@ namespace Ryujinx.Audio.Output
             return result;
         }
 
+        [EventSource(Name = "Ryujinx.Audio")]
+        public sealed class AudioEventSource : EventSource
+        {
+            public static readonly AudioEventSource Instance = new AudioEventSource();
+
+            private IncrementingEventCounter _bytesQueuedCounter;
+
+            private AudioEventSource()
+            {
+                _bytesQueuedCounter = new IncrementingEventCounter("audio-bytes-queued", this)
+                {
+                    DisplayName = "Audio Bytes Queued",
+                    DisplayUnits = "b"
+                };
+            }
+
+            public void LogBytesQueued(double bytes)
+            {
+                _bytesQueuedCounter?.Increment(bytes);
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                _bytesQueuedCounter?.Dispose();
+                _bytesQueuedCounter = null;
+                base.Dispose(disposing);
+            }
+        }
+
         /// <summary>
         /// Append a new audio buffer to the audio output.
         /// </summary>
@@ -191,6 +222,8 @@ namespace Ryujinx.Audio.Output
                     DataPointer = userBuffer.Data,
                     DataSize = userBuffer.DataSize
                 };
+
+                AudioEventSource.Instance.LogBytesQueued(buffer.DataSize);
 
                 if (_session.AppendBuffer(buffer))
                 {
