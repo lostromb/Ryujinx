@@ -629,6 +629,13 @@ namespace Ryujinx.Graphics.Gpu.Memory
             _context.Renderer.Pipeline.CopyBuffer(Handle, destination.Handle, 0, dstOffset, (int)Size);
         }
 
+        /// <summary>
+        /// Flushes a range of the buffer.
+        /// This writes the range data back into guest memory.
+        /// </summary>
+        /// <param name="handle">Buffer handle to flush data from</param>
+        /// <param name="address">Start address of the range</param>
+        /// <param name="size">Size in bytes of the range</param>
         private void FlushImpl(BufferHandle handle, ulong address, ulong size)
         {
             int offset = (int)(address - Address);
@@ -639,13 +646,19 @@ namespace Ryujinx.Graphics.Gpu.Memory
             _physicalMemory.WriteUntracked(address, CopyFromDependantVirtualBuffers(data.Get(), address, size));
         }
 
+        /// <summary>
+        /// Flushes a range of the buffer.
+        /// This writes the range data back into guest memory.
+        /// </summary>
+        /// <param name="address">Start address of the range</param>
+        /// <param name="size">Size in bytes of the range</param>
         private void FlushImpl(ulong address, ulong size)
         {
             FlushImpl(Handle, address, size);
         }
 
         /// <summary>
-        /// Flushes a range of the buffer.
+        /// Flushes a range of the buffer from the most optimal source.
         /// This writes the range data back into guest memory.
         /// </summary>
         /// <param name="address">Start address of the range</param>
@@ -670,7 +683,7 @@ namespace Ryujinx.Graphics.Gpu.Memory
         /// Gets an action that disposes the backing buffer using its current handle.
         /// Useful for deleting an old copy of the buffer after the handle changes.
         /// </summary>
-        /// <returns>An action that flushes data from the specified range, using the buffer handle at the time this the method is generated</returns>
+        /// <returns>An action that flushes data from the specified range, using the buffer handle at the time the method is generated</returns>
         public Action GetSnapshotDisposeAction()
         {
             BufferHandle handle = Handle;
@@ -687,7 +700,7 @@ namespace Ryujinx.Graphics.Gpu.Memory
         /// Gets an action that flushes a range of the buffer using its current handle.
         /// Useful for flushing data from old copies of the buffer after the handle changes.
         /// </summary>
-        /// <returns>An action that flushes data from the specified range, using the buffer handle at the time this the method is generated</returns>
+        /// <returns>An action that flushes data from the specified range, using the buffer handle at the time the method is generated</returns>
         public BufferFlushAction GetSnapshotFlushAction()
         {
             BufferHandle handle = Handle;
